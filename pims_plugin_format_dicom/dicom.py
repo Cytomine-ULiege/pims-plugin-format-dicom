@@ -2,7 +2,7 @@ import os
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import shapely
 from pydicom.multival import MultiValue
@@ -44,11 +44,19 @@ def recurse_if_SQ(ds):
     return list_ds
 
 
-def cached_wsi_dicom_file(format: AbstractFormat) -> WsiDicom:
+def cached_wsi_dicom_file(
+    format: AbstractFormat,
+    credentials: Dict[str, str]
+) -> WsiDicom:
     return format.get_cached(
         '_wsi_dicom',
         WsiDicom.open,
         str(format.path),
+        "crypt4gh://encrypted_file_path",
+        file_options={
+            "private_key": credentials.get("private_key"),
+            "sender_public_key": credentials.get("public_key"),
+        },
     )
 
 
@@ -89,9 +97,11 @@ class WSIDicomChecker(AbstractChecker):
 
 
 class WSIDicomParser(AbstractParser):
+    def set_credentials(self, credentials: Dict[str, str]):
+        self.credentials = credentials
 
     def parse_main_metadata(self):
-        wsidicom_object = cached_wsi_dicom_file(self.format)
+        wsidicom_object = cached_wsi_dicom_file(self.format, self.credentials)
         levels = wsidicom_object.levels
         imd = ImageMetadata()
 
@@ -139,8 +149,7 @@ class WSIDicomParser(AbstractParser):
         return imd
 
     def parse_known_metadata(self):
-        wsidicom_object = cached_wsi_dicom_file(self.format)
-        levels = wsidicom_object.levels
+        wsidicom_object = cached_wsi_dicom_file(self.format, self.credentials)
 
         metadata = dictify(wsidicom_object.levels.groups[0].datasets[0])
         imd = super().parse_known_metadata()
@@ -154,8 +163,8 @@ class WSIDicomParser(AbstractParser):
         return imd
 
     def parse_raw_metadata(self):
-        wsidicom_object = cached_wsi_dicom_file(self.format)
-        levels = wsidicom_object.levels
+        wsidicom_object = cached_wsi_dicom_file(self.format, self.credentials)
+
         store = super().parse_raw_metadata()
         ds = wsidicom_object.levels.groups[0].datasets[0]
         data_elmts = recurse_if_SQ(ds)
@@ -177,7 +186,7 @@ class WSIDicomParser(AbstractParser):
     def parse_pyramid(self):
         pyramid = Pyramid()
 
-        wsidicom_object = cached_wsi_dicom_file(self.format)
+        wsidicom_object = cached_wsi_dicom_file(self.format, self.credentials)
 
         for level in wsidicom_object.levels:
             pyramid.insert_tier(
@@ -189,7 +198,7 @@ class WSIDicomParser(AbstractParser):
         return pyramid
 
     def parse_annotations(self) -> List[ParsedMetadataAnnotation]:
-        wsidicom_object = cached_wsi_dicom_file(self.format)
+        wsidicom_object = cached_wsi_dicom_file(self.format, self.credentials)
         channels = list(range(self.format.main_imd.n_channels))
         parsed_annots = []
         pixel_spacing = wsidicom_object.levels.groups[0].pixel_spacing.width
@@ -237,14 +246,16 @@ class WSIDicomParser(AbstractParser):
 
 
 class WSIDicomReader(AbstractReader):
+    def set_credentials(self, credentials: Dict[str, str]):
+        self.credentials = credentials
 
     def read_thumb(self, out_width, out_height, precomputed=True, c=None, z=None, t=None):
-        img = cached_wsi_dicom_file(self.format)
+        img = cached_wsi_dicom_file(self.format, self.credentials)
 
         return img.read_thumbnail((out_width, out_height))
 
     def read_window(self, region, out_width, out_height, c=None, z=None, t=None):
-        img = cached_wsi_dicom_file(self.format)
+        img = cached_wsi_dicom_file(self.format, self.credentials)
 
         tier = self.format.pyramid.most_appropriate_tier(region, (out_width, out_height))
         region = region.scale_to_tier(tier)
@@ -256,11 +267,11 @@ class WSIDicomReader(AbstractReader):
         return self.read_window(tile, tile.width, tile.height, c, z, t)
 
     def read_macro(self, out_width, out_height):
-        img = cached_wsi_dicom_file(self.format)
+        img = cached_wsi_dicom_file(self.format, self.credentials)
         return img.read_overview()
 
     def read_label(self, out_width, out_height):
-        img = cached_wsi_dicom_file(self.format)
+        img = cached_wsi_dicom_file(self.format, self.credentials)
         return img.read_label()
 
 
