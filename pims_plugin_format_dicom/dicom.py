@@ -45,7 +45,11 @@ def recurse_if_SQ(ds):
 
 
 def cached_wsi_dicom_file(format: AbstractFormat) -> WsiDicom:
-    return format.get_cached('_wsi_dicom', WsiDicom.open, str(format.path))
+    return format.get_cached(
+        '_wsi_dicom',
+        WsiDicom.open,
+        str(format.path),
+    )
 
 
 def get_root_file(path: Path) -> Optional[Path]:
@@ -174,13 +178,13 @@ class WSIDicomParser(AbstractParser):
         pyramid = Pyramid()
 
         wsidicom_object = cached_wsi_dicom_file(self.format)
-        levels = wsidicom_object.levels
 
-        for level in wsidicom_object.levels.levels:
-            level_info = wsidicom_object.levels.get_level(level)
-            level_size = level_info.size
-            tile_size = level_info.tile_size
-            pyramid.insert_tier(level_size.width, level_size.height, (tile_size.width, tile_size.height))
+        for level in wsidicom_object.levels:
+            pyramid.insert_tier(
+                level.size.width,
+                level.size.height,
+                (level.tile_size.width, level.tile_size.height)
+            )
 
         return pyramid
 
