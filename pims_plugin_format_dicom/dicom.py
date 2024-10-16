@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import shapely
+from crypt4gh_fsspec.crypt4gh_file import Crypt4GHMagic
 from pydicom.multival import MultiValue
 from wsidicom.graphical_annotations import Point as WsiPoint
 from wsidicom.graphical_annotations import Polygon as WsiPolygon
@@ -44,20 +45,34 @@ def recurse_if_SQ(ds):
     return list_ds
 
 
+def is_encrypted(file_path: str) -> bool:
+    """Check if the file is encrypted."""
+
+    with open(file_path, "rb") as file:
+        if Crypt4GHMagic(file).is_crypt4gh():
+            return True
+
+    return False
+
+
 def cached_wsi_dicom_file(
     format: AbstractFormat,
     credentials: Dict[str, str]
 ) -> WsiDicom:
-    return format.get_cached(
-        '_wsi_dicom',
-        WsiDicom.open,
-        str(format.path),
-        "crypt4gh://encrypted_file_path",
-        file_options={
-            "private_key": credentials.get("private_key"),
-            "sender_public_key": credentials.get("public_key"),
-        },
-    )
+    file_path = str(format.path)
+
+    if is_encrypted(file_path):
+        return format.get_cached(
+            "_wsi_dicom",
+            WsiDicom.open,
+            f"crypt4gh://{file_path}",
+            file_options={
+                "private_key": credentials.get("private_key"),
+                "sender_public_key": credentials.get("public_key"),
+            },
+        )    
+
+    return format.get_cached("_wsi_dicom", WsiDicom.open, file_path)
 
 
 def get_root_file(path: Path) -> Optional[Path]:
