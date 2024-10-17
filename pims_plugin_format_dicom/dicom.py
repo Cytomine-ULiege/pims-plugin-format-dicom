@@ -61,16 +61,16 @@ def cached_wsi_dicom_file(
 ) -> WsiDicom:
     file_path = str(format.path)
 
-    # if is_encrypted(file_path):
-    #     return format.get_cached(
-    #         "_wsi_dicom",
-    #         WsiDicom.open,
-    #         f"crypt4gh://{file_path}",
-    #         file_options={
-    #             "private_key": credentials.get("private_key"),
-    #             "sender_public_key": credentials.get("public_key"),
-    #         },
-    #     )
+    if is_encrypted(file_path):
+        return format.get_cached(
+            "_wsi_dicom",
+            WsiDicom.open,
+            f"crypt4gh://{file_path}",
+            file_options={
+                "private_key": credentials.get("private_key"),
+                "sender_public_key": credentials.get("public_key"),
+            },
+        )
 
     return format.get_cached("_wsi_dicom", WsiDicom.open, file_path)
 
