@@ -61,7 +61,7 @@ def cached_wsi_dicom_file(
 ) -> WsiDicom:
     file_path = str(format.path)
 
-    if is_encrypted(file_path):
+    if is_encrypted(os.path.join(file_path, os.listdir(file_path)[0])):
         return format.get_cached(
             "_wsi_dicom",
             WsiDicom.open,
@@ -70,7 +70,7 @@ def cached_wsi_dicom_file(
                 "private_key": credentials.get("private_key"),
                 "sender_public_key": credentials.get("public_key"),
             },
-        )    
+        )
 
     return format.get_cached("_wsi_dicom", WsiDicom.open, file_path)
 
@@ -272,11 +272,17 @@ class WSIDicomReader(AbstractReader):
     def read_window(self, region, out_width, out_height, c=None, z=None, t=None):
         img = cached_wsi_dicom_file(self.format, self.credentials)
 
-        tier = self.format.pyramid.most_appropriate_tier(region, (out_width, out_height))
+        tier = self.format.pyramid.most_appropriate_tier(
+            region,
+            (out_width, out_height)
+        )
         region = region.scale_to_tier(tier)
-        level = tier.level
-        norm_level = img.levels.levels[level]
-        return img.read_region((region.left, region.top), norm_level, (region.width, region.height))
+
+        return img.read_region(
+            (region.left, region.top),
+            tier.level,
+            (region.width, region.height)
+        )
 
     def read_tile(self, tile, c=None, z=None, t=None):
         return self.read_window(tile, tile.width, tile.height, c, z, t)
