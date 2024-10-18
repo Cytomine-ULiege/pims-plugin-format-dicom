@@ -68,7 +68,6 @@ def cached_wsi_dicom_file(
             f"crypt4gh://{file_path}",
             file_options={
                 "private_key": credentials.get("private_key"),
-                "sender_public_key": credentials.get("public_key"),
             },
         )
 
@@ -89,26 +88,41 @@ class WSIDicomChecker(AbstractChecker):
     OFFSET = 128
 
     @classmethod
+    def is_wsi_dicom(cls, signature: bytearray) -> bool:
+        """Check if the signature is a WSI DICOM signature."""
+
+        if (
+            len(signature) > cls.OFFSET + 4
+            and signature[cls.OFFSET] == 0x44
+            and signature[cls.OFFSET + 1] == 0x49
+            and signature[cls.OFFSET + 2] == 0x43
+            and signature[cls.OFFSET + 3] == 0x4D
+        ):
+            return True
+
+        return False
+
+
+    @classmethod
     def match(cls, pathlike: CachedDataPath) -> bool:
         from pims.files.file import Path
         path = pathlike.path
-        if os.path.isdir(path):
-            # list_subdir = [f.path for f in os.scandir(path) if os.path.isdir(f)]
-            # if len(list_subdir) == 1:
-            for child in os.listdir(path):
-                # verification on the format signature for each .dcm file
-                complete_path = Path(os.path.join(path, child))
-                cached_child = CachedDataPath(complete_path)
-                buf = cached_child.get_cached('signature', cached_child.path.signature)
-                if not (len(buf) > cls.OFFSET + 4 and
-                        buf[cls.OFFSET] == 0x44 and
-                        buf[cls.OFFSET + 1] == 0x49 and
-                        buf[cls.OFFSET + 2] == 0x43 and
-                        buf[cls.OFFSET + 3] == 0x4D):
-                    return False
-            return True
-            # return False
-        return False
+
+        if not os.path.isdir(path):
+            return False
+
+        # verification on the format signature for each .dcm file
+        for child in os.listdir(path):
+            cached_child = CachedDataPath(Path(os.path.join(path, child)))
+            signature = cached_child.get_cached(
+                "signature",
+                cached_child.path.signature
+            )
+
+            if not cls.is_wsi_dicom(signature):
+                return False
+
+        return True
 
 
 class WSIDicomParser(AbstractParser):
