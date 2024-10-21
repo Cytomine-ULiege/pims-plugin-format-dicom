@@ -4,7 +4,9 @@ from functools import cached_property
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import fsspec
 import shapely
+import tempfile
 from crypt4gh_fsspec.crypt4gh_file import Crypt4GHMagic
 from pydicom.multival import MultiValue
 from wsidicom.graphical_annotations import Point as WsiPoint
@@ -19,6 +21,15 @@ from pims.formats.utils.structures.pyramid import Pyramid
 from pims.utils import UNIT_REGISTRY
 from pims.utils.dtypes import np_dtype
 from pims.utils.types import parse_float
+
+import logging
+logger = logging.getLogger("pims.app")
+
+
+def format_pem_key(middle_part: str) -> str:
+    return f"""-----BEGIN CRYPT4GH PRIVATE KEY-----
+{middle_part}
+-----END CRYPT4GH PRIVATE KEY-----"""
 
 
 def dictify(ds):
@@ -62,14 +73,18 @@ def cached_wsi_dicom_file(
     file_path = str(format.path)
 
     if is_encrypted(os.path.join(file_path, os.listdir(file_path)[0])):
-        return format.get_cached(
-            "_wsi_dicom",
-            WsiDicom.open,
-            f"crypt4gh://{file_path}",
-            file_options={
-                "private_key": credentials.get("private_key"),
-            },
-        )
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+            tmp_file.write(private_key.encode("UTF-8"))
+            tmp_file.flush()
+
+            return format.get_cached(
+                "_wsi_dicom",
+                WsiDicom.open,
+                f"crypt4gh://{file_path}",
+                file_options={
+                    "private_key": tmp_file.name,
+                },
+            )
 
     return format.get_cached("_wsi_dicom", WsiDicom.open, file_path)
 
@@ -84,7 +99,9 @@ def get_root_file(path: Path) -> Optional[Path]:
     return None
 
 
+
 class WSIDicomChecker(AbstractChecker):
+    CREDENTIALS = None
     OFFSET = 128
 
     @classmethod
@@ -105,22 +122,39 @@ class WSIDicomChecker(AbstractChecker):
 
     @classmethod
     def match(cls, pathlike: CachedDataPath) -> bool:
-        from pims.files.file import Path
+        from pims.files.file import NUM_SIGNATURE_BYTES, Path
         path = pathlike.path
 
         if not os.path.isdir(path):
             return False
 
-        # verification on the format signature for each .dcm file
-        for child in os.listdir(path):
-            cached_child = CachedDataPath(Path(os.path.join(path, child)))
-            signature = cached_child.get_cached(
-                "signature",
-                cached_child.path.signature
-            )
+        encrypted = is_encrypted(os.path.join(path, os.listdir(path)[0]))
 
-            if not cls.is_wsi_dicom(signature):
-                return False
+        # verification on the format signature for each .dcm file
+        with tempfile.NamedTemporaryFile(delete=True) as tmp_file:
+            tmp_file.write(private_key.encode("UTF-8"))
+            tmp_file.flush()
+            logger.info(f"Private key {private_key == format_pem_key(cls.CREDENTIALS.get('private_key'))}")
+
+            for child in os.listdir(path):
+                if encrypted:
+                    logger.info(f"Checking 'crypt4gh://{os.path.join(path, child)}'")
+                    with fsspec.open(
+                        f"crypt4gh://{os.path.join(path, child)}",
+                        private_key=tmp_file.name,
+                    ) as file:
+                        signature = file.read(262)
+                        logger.info(f"read {signature}")
+
+                else:
+                    cached_child = CachedDataPath(Path(os.path.join(path, child)))
+                    signature = cached_child.get_cached(
+                        "signature",
+                        cached_child.path.signature
+                    )
+
+                if not cls.is_wsi_dicom(signature):
+                    return False
 
         return True
 
