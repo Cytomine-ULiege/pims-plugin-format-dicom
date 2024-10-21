@@ -74,6 +74,7 @@ def cached_wsi_dicom_file(
 
     if is_encrypted(os.path.join(file_path, os.listdir(file_path)[0])):
         with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+            private_key = format_pem_key(credentials.get('private_key'))
             tmp_file.write(private_key.encode("UTF-8"))
             tmp_file.flush()
 
@@ -132,9 +133,9 @@ class WSIDicomChecker(AbstractChecker):
 
         # verification on the format signature for each .dcm file
         with tempfile.NamedTemporaryFile(delete=True) as tmp_file:
+            private_key = format_pem_key(cls.CREDENTIALS.get('private_key'))
             tmp_file.write(private_key.encode("UTF-8"))
             tmp_file.flush()
-            logger.info(f"Private key {private_key == format_pem_key(cls.CREDENTIALS.get('private_key'))}")
 
             for child in os.listdir(path):
                 if encrypted:
