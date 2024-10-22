@@ -139,13 +139,11 @@ class WSIDicomChecker(AbstractChecker):
 
             for child in os.listdir(path):
                 if encrypted:
-                    logger.info(f"Checking 'crypt4gh://{os.path.join(path, child)}'")
                     with fsspec.open(
                         f"crypt4gh://{os.path.join(path, child)}",
                         private_key=tmp_file.name,
                     ) as file:
-                        signature = file.read(262)
-                        logger.info(f"read {signature}")
+                        signature = file.read(NUM_SIGNATURE_BYTES)
 
                 else:
                     cached_child = CachedDataPath(Path(os.path.join(path, child)))
