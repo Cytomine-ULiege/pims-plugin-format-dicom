@@ -1,4 +1,6 @@
+import logging
 import os
+from base64 import b64decode
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
@@ -6,30 +8,40 @@ from typing import Dict, List, Optional
 
 import fsspec
 import shapely
-import tempfile
 from crypt4gh_fsspec.crypt4gh_file import Crypt4GHMagic
+from nacl.public import PrivateKey
+from pims.formats.utils.abstract import (
+    AbstractChecker,
+    AbstractFormat,
+    AbstractParser,
+    AbstractReader,
+    CachedDataPath,
+)
+from pims.formats.utils.histogram import DefaultHistogramReader
+from pims.formats.utils.structures.annotations import ParsedMetadataAnnotation
+from pims.formats.utils.structures.metadata import ImageChannel, ImageMetadata
+from pims.formats.utils.structures.pyramid import Pyramid
+from pims.utils import UNIT_REGISTRY
+from pims.utils.dtypes import np_dtype
+from pims.utils.types import parse_float
 from pydicom.multival import MultiValue
 from wsidicom.graphical_annotations import Point as WsiPoint
 from wsidicom.graphical_annotations import Polygon as WsiPolygon
 from wsidicom.wsidicom import WsiDicom
 
-from pims.formats.utils.abstract import AbstractChecker, AbstractParser, AbstractReader, AbstractFormat, CachedDataPath
-from pims.formats.utils.histogram import DefaultHistogramReader
-from pims.formats.utils.structures.annotations import ParsedMetadataAnnotation
-from pims.formats.utils.structures.metadata import ImageMetadata, ImageChannel
-from pims.formats.utils.structures.pyramid import Pyramid
-from pims.utils import UNIT_REGISTRY
-from pims.utils.dtypes import np_dtype
-from pims.utils.types import parse_float
-
-import logging
+NACL_KEY_LENGTH = 32
 logger = logging.getLogger("pims.app")
 
 
-def format_pem_key(middle_part: str) -> str:
-    return f"""-----BEGIN CRYPT4GH PRIVATE KEY-----
-{middle_part}
------END CRYPT4GH PRIVATE KEY-----"""
+def decode_key(key: str) -> PrivateKey:
+    """Decode the key and extract the private key."""
+
+    secret_key = b64decode(key)[-NACL_KEY_LENGTH:]
+
+    if len(secret_key) != NACL_KEY_LENGTH:
+        raise ValueError(f"The extracted key is not {NACL_KEY_LENGTH} bytes long!")
+
+    return PrivateKey(secret_key)
 
 
 def dictify(ds):
@@ -73,19 +85,14 @@ def cached_wsi_dicom_file(
     file_path = str(format.path)
 
     if is_encrypted(os.path.join(file_path, os.listdir(file_path)[0])):
-        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-            private_key = format_pem_key(credentials.get('private_key'))
-            tmp_file.write(private_key.encode("UTF-8"))
-            tmp_file.flush()
-
-            return format.get_cached(
-                "_wsi_dicom",
-                WsiDicom.open,
-                f"crypt4gh://{file_path}",
-                file_options={
-                    "private_key": tmp_file.name,
-                },
-            )
+        return format.get_cached(
+            "_wsi_dicom",
+            WsiDicom.open,
+            f"crypt4gh://{file_path}",
+            file_options={
+                "private_key": decode_key(credentials.get('private_key')),
+            },
+        )
 
     return format.get_cached("_wsi_dicom", WsiDicom.open, file_path)
 
@@ -106,6 +113,22 @@ class WSIDicomChecker(AbstractChecker):
     OFFSET = 128
 
     @classmethod
+    def get_signature(cls, file_path: str, encrypted: bool = False) -> bytearray:
+        """Get the signature of the file."""
+
+        from pims.files.file import NUM_SIGNATURE_BYTES, Path
+
+        if encrypted:
+            with fsspec.open(
+                f"crypt4gh://{file_path}",
+                private_key=decode_key(cls.CREDENTIALS.get("private_key")),
+            ) as file:
+                return file.read(NUM_SIGNATURE_BYTES)
+
+        cached_child = CachedDataPath(Path(file_path))
+        return cached_child.get_cached("signature", cached_child.path.signature)
+
+    @classmethod
     def is_wsi_dicom(cls, signature: bytearray) -> bool:
         """Check if the signature is a WSI DICOM signature."""
 
@@ -123,7 +146,6 @@ class WSIDicomChecker(AbstractChecker):
 
     @classmethod
     def match(cls, pathlike: CachedDataPath) -> bool:
-        from pims.files.file import NUM_SIGNATURE_BYTES, Path
         path = pathlike.path
 
         if not os.path.isdir(path):
@@ -132,28 +154,11 @@ class WSIDicomChecker(AbstractChecker):
         encrypted = is_encrypted(os.path.join(path, os.listdir(path)[0]))
 
         # verification on the format signature for each .dcm file
-        with tempfile.NamedTemporaryFile(delete=True) as tmp_file:
-            private_key = format_pem_key(cls.CREDENTIALS.get('private_key'))
-            tmp_file.write(private_key.encode("UTF-8"))
-            tmp_file.flush()
+        for child in os.listdir(path):
+            signature = cls.get_signature(os.path.join(path, child), encrypted)
 
-            for child in os.listdir(path):
-                if encrypted:
-                    with fsspec.open(
-                        f"crypt4gh://{os.path.join(path, child)}",
-                        private_key=tmp_file.name,
-                    ) as file:
-                        signature = file.read(NUM_SIGNATURE_BYTES)
-
-                else:
-                    cached_child = CachedDataPath(Path(os.path.join(path, child)))
-                    signature = cached_child.get_cached(
-                        "signature",
-                        cached_child.path.signature
-                    )
-
-                if not cls.is_wsi_dicom(signature):
-                    return False
+            if not cls.is_wsi_dicom(signature):
+                return False
 
         return True
 
