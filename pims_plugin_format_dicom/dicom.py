@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 
 import fsspec
 import shapely
+from crypt4gh_fsspec import Crypt4GHFileSystem  # noqa
 from crypt4gh_fsspec.crypt4gh_file import Crypt4GHMagic
 from nacl.public import PrivateKey
 from pims.formats.utils.abstract import (
@@ -90,7 +91,7 @@ def cached_wsi_dicom_file(
             WsiDicom.open,
             f"crypt4gh://{file_path}",
             file_options={
-                "private_key": decode_key(credentials.get('private_key')),
+                "private_key": decode_key(credentials.get("private_key")),
             },
         )
 
