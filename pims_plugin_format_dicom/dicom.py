@@ -46,7 +46,7 @@ def decode_key(key: str) -> PrivateKey:
 def dictify(ds):
     output = dict()
     for elem in ds:
-        if elem.VR != 'SQ':
+        if elem.VR != "SQ":
             output[elem.name] = elem.value
         else:
             output[elem.name] = [dictify(item) for item in elem]
@@ -57,7 +57,7 @@ def recurse_if_SQ(ds):
     list_ds = []
 
     for data_element in ds:
-        if data_element.VR != 'SQ':
+        if data_element.VR != "SQ":
             list_ds.append(data_element)
 
         else:
@@ -79,7 +79,7 @@ def is_encrypted(file_path: Path) -> bool:
 
 def cached_wsi_dicom_file(
     format: AbstractFormat,
-    credentials: Dict[str, str]
+    credentials: Dict[str, str],
 ) -> WsiDicom:
     file_path = Path(format.path).resolve()
 
@@ -99,12 +99,11 @@ def cached_wsi_dicom_file(
 def get_root_file(path: Path) -> Optional[Path]:
     """Try to get WSI DICOM directory (as it is a multi-file format)."""
     if path.is_dir():
-        if sum(1 for _ in Path(path).glob('*')):
+        if sum(1 for _ in Path(path).glob("*")):
             for child in path.iterdir():
                 if child.is_dir():
                     return path
     return None
-
 
 
 class WSIDicomChecker(AbstractChecker):
@@ -142,7 +141,6 @@ class WSIDicomChecker(AbstractChecker):
 
         return False
 
-
     @classmethod
     def match(cls, pathlike: CachedDataPath) -> bool:
         path = pathlike.path
@@ -174,7 +172,7 @@ class WSIDicomParser(AbstractParser):
         imd.width = levels.base_level.size.width
         imd.height = levels.base_level.size.height
         metadata = dictify(wsidicom_object.levels.groups[0].datasets[0])
-        if 'Bits Stored' in metadata:
+        if "Bits Stored" in metadata:
             imd.significant_bits = metadata["Bits Stored"]
         else:
             imd.significant_bits = 8
@@ -188,16 +186,17 @@ class WSIDicomParser(AbstractParser):
         if "Manufacturer's Model Name" in metadata:
             imd.microscope.model = metadata["Manufacturer's Model Name"]
 
-        if 'Objective Lens Power' in metadata['Optical Path Sequence'][0]:
+        if "Objective Lens Power" in metadata["Optical Path Sequence"][0]:
             imd.objective.nominal_magnification = parse_float(
-                metadata['Optical Path Sequence'][0]['Objective Lens Power'])
+                metadata["Optical Path Sequence"][0]["Objective Lens Power"]
+            )
 
         if imd.n_channels == 3:
-            imd.set_channel(ImageChannel(index=0, suggested_name='R'))
-            imd.set_channel(ImageChannel(index=1, suggested_name='G'))
-            imd.set_channel(ImageChannel(index=2, suggested_name='B'))
+            imd.set_channel(ImageChannel(index=0, suggested_name="R"))
+            imd.set_channel(ImageChannel(index=1, suggested_name="G"))
+            imd.set_channel(ImageChannel(index=2, suggested_name="B"))
         else:
-            imd.set_channel(ImageChannel(index=0, suggested_name='L'))
+            imd.set_channel(ImageChannel(index=0, suggested_name="L"))
         imd.n_channels_per_read = imd.n_channels
 
         if wsidicom_object.labels:
@@ -217,15 +216,16 @@ class WSIDicomParser(AbstractParser):
     def parse_known_metadata(self):
         wsidicom_object = cached_wsi_dicom_file(self.format, self.credentials)
 
-        metadata = dictify(wsidicom_object.levels.groups[0].datasets[0])
+        groups = wsidicom_object.levels.groups[0]
+        metadata = dictify(groups.datasets[0])
         imd = super().parse_known_metadata()
-        imd.physical_size_x = wsidicom_object.levels.groups[0].mpp.width * UNIT_REGISTRY("micrometers")
-        imd.physical_size_y = wsidicom_object.levels.groups[0].mpp.height * UNIT_REGISTRY("micrometers")
+        imd.physical_size_x = groups.mpp.width * UNIT_REGISTRY("micrometers")
+        imd.physical_size_y = groups.mpp.height * UNIT_REGISTRY("micrometers")
 
-        imd.physical_size_z = self.parse_physical_size(
-            metadata['Shared Functional Groups Sequence'][0]['Pixel Measures Sequence'][0]['Spacing Between Slices'])
-        if 'Acquisition DateTime' in metadata:
-            imd.acquisition_datetime = self.parse_acquisition_date(metadata['Acquisition DateTime'])
+        imd.physical_size_z = self.parse_physical_size(metadata["Shared Functional Groups Sequence"][0]["Pixel Measures Sequence"][0]["Spacing Between Slices"])
+        if "Acquisition DateTime" in metadata:
+            imd.acquisition_datetime = self.parse_acquisition_date(metadata["Acquisition DateTime"])
+
         return imd
 
     def parse_raw_metadata(self):
@@ -240,7 +240,7 @@ class WSIDicomParser(AbstractParser):
             if data_element.is_private:
                 tag = data_element.tag
                 name = f"{tag.group:04x}_{tag.element:04x}"  # noqa
-            name = name.replace(' ', '')
+            name = name.replace(" ", "")
 
             value = data_element.value
             if type(value) is MultiValue:
@@ -258,7 +258,7 @@ class WSIDicomParser(AbstractParser):
             pyramid.insert_tier(
                 level.size.width,
                 level.size.height,
-                (level.tile_size.width, level.tile_size.height)
+                (level.tile_size.width, level.tile_size.height),
             )
 
         return pyramid
@@ -296,8 +296,8 @@ class WSIDicomParser(AbstractParser):
         """
         try:
             if date:
-                str_date = datetime.strptime(date.split('.')[0], "%Y%m%d%H%M%S")
-                return f'{str_date}'
+                str_date = datetime.strptime(date.split(".")[0], "%Y%m%d%H%M%S")
+                return f"{str_date}"
 
             else:
                 return None
@@ -315,7 +315,15 @@ class WSIDicomReader(AbstractReader):
     def set_credentials(self, credentials: Dict[str, str]):
         self.credentials = credentials
 
-    def read_thumb(self, out_width, out_height, precomputed=True, c=None, z=None, t=None):
+    def read_thumb(
+        self,
+        out_width,
+        out_height,
+        precomputed=True,
+        c=None,
+        z=None,
+        t=None,
+    ):
         img = cached_wsi_dicom_file(self.format, self.credentials)
 
         return img.read_thumbnail((out_width, out_height))
@@ -325,14 +333,14 @@ class WSIDicomReader(AbstractReader):
 
         tier = self.format.pyramid.most_appropriate_tier(
             region,
-            (out_width, out_height)
+            (out_width, out_height),
         )
         region = region.scale_to_tier(tier)
 
         return img.read_region(
             (region.left, region.top),
             tier.level,
-            (region.width, region.height)
+            (region.width, region.height),
         )
 
     def read_tile(self, tile, c=None, z=None, t=None):
