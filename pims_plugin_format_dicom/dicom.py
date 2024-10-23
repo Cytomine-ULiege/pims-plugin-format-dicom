@@ -1,4 +1,3 @@
-import logging
 import os
 from base64 import b64decode
 from datetime import datetime
@@ -31,7 +30,6 @@ from wsidicom.graphical_annotations import Polygon as WsiPolygon
 from wsidicom.wsidicom import WsiDicom
 
 NACL_KEY_LENGTH = 32
-logger = logging.getLogger("pims.app")
 
 
 def decode_key(key: str) -> PrivateKey:
@@ -69,7 +67,7 @@ def recurse_if_SQ(ds):
     return list_ds
 
 
-def is_encrypted(file_path: str) -> bool:
+def is_encrypted(file_path: Path) -> bool:
     """Check if the file is encrypted."""
 
     with open(file_path, "rb") as file:
@@ -83,7 +81,7 @@ def cached_wsi_dicom_file(
     format: AbstractFormat,
     credentials: Dict[str, str]
 ) -> WsiDicom:
-    file_path = str(format.path)
+    file_path = Path(format.path).resolve()
 
     if is_encrypted(os.path.join(file_path, os.listdir(file_path)[0])):
         return format.get_cached(
