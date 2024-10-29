@@ -235,7 +235,7 @@ class WSIDicomParser(AbstractParser):
                     elif isinstance(annotation.geometry, WsiPoint):
                         annotation_geom = shapely.geometry.Point(coords_pixels)
                     else:
-                        pass
+                        annotation_geom = shapely.geometry.Polygon()  # Empty polygon
                     parsed = ParsedMetadataAnnotation(annotation_geom, channels, 0, 0)
                     parsed_annots.append(parsed)
         return parsed_annots
