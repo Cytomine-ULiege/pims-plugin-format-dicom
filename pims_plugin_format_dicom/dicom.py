@@ -1,9 +1,11 @@
+"""Classes and functions to handle WSI DICOM format."""
+
 import os
 from base64 import b64decode
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import fsspec
 import shapely
@@ -43,17 +45,22 @@ def decode_key(key: str) -> PrivateKey:
     return PrivateKey(secret_key)
 
 
-def dictify(ds):
-    output = dict()
+def dictify(ds: List[Any]) -> Dict[str, Any]:
+    """Convert a list to a dictionary."""
+
+    output = {}
     for elem in ds:
         if elem.VR != "SQ":
             output[elem.name] = elem.value
         else:
             output[elem.name] = [dictify(item) for item in elem]
+
     return output
 
 
-def recurse_if_SQ(ds):
+def recurse_if_SQ(ds: List[Any]) -> List[Any]:
+    """Recursively iterate over the data elements."""
+
     list_ds = []
 
     for data_element in ds:
@@ -64,6 +71,7 @@ def recurse_if_SQ(ds):
             for elmt in data_element:
                 list_recursive = recurse_if_SQ(elmt)
                 list_ds.extend(list_recursive)
+
     return list_ds
 
 
@@ -81,6 +89,8 @@ def cached_wsi_dicom_file(
     format: AbstractFormat,
     credentials: Dict[str, str],
 ) -> WsiDicom:
+    """Get the WSI DICOM object from the cache."""
+
     file_path = Path(format.path).resolve()
 
     if is_encrypted(os.path.join(file_path, os.listdir(file_path)[0])):
@@ -222,9 +232,13 @@ class WSIDicomParser(AbstractParser):
         imd.physical_size_x = groups.mpp.width * UNIT_REGISTRY("micrometers")
         imd.physical_size_y = groups.mpp.height * UNIT_REGISTRY("micrometers")
 
-        imd.physical_size_z = self.parse_physical_size(metadata["Shared Functional Groups Sequence"][0]["Pixel Measures Sequence"][0]["Spacing Between Slices"])
+        ADT = "Acquisition DateTime"
+        PMS = "Pixel Measures Sequence"
+        SFGS = "Shared Functional Groups Sequence"
+        SBS = "Spacing Between Slices"
+        imd.physical_size_z = self.parse_physical_size(metadata[SFGS][0][PMS][0][SBS])
         if "Acquisition DateTime" in metadata:
-            imd.acquisition_datetime = self.parse_acquisition_date(metadata["Acquisition DateTime"])
+            imd.acquisition_datetime = self.parse_acquisition_date(metadata[ADT])
 
         return imd
 
@@ -243,7 +257,7 @@ class WSIDicomParser(AbstractParser):
             name = name.replace(" ", "")
 
             value = data_element.value
-            if type(value) is MultiValue:
+            if isinstance(value, MultiValue):
                 value = list(value)
             store.set(name, value, namespace="DICOM")
 
@@ -284,7 +298,7 @@ class WSIDicomParser(AbstractParser):
                     elif isinstance(annotation.geometry, WsiPoint):
                         annotation_geom = shapely.geometry.Point(coords_pixels)
                     else:
-                        pass
+                        annotation_geom = shapely.geometry.Polygon()  # Empty polygon
                     parsed = ParsedMetadataAnnotation(annotation_geom, channels, 0, 0)
                     parsed_annots.append(parsed)
         return parsed_annots
@@ -299,8 +313,7 @@ class WSIDicomParser(AbstractParser):
                 str_date = datetime.strptime(date.split(".")[0], "%Y%m%d%H%M%S")
                 return f"{str_date}"
 
-            else:
-                return None
+            return None
         except (ValueError, TypeError):
             return None
 
