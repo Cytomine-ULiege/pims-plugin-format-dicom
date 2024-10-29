@@ -12,6 +12,7 @@ import shapely
 from crypt4gh_fsspec import Crypt4GHFileSystem  # pylint: disable=unused-import
 from crypt4gh_fsspec.crypt4gh_file import Crypt4GHMagic
 from nacl.public import PrivateKey
+from nacl.secret import SecretBox
 from pims.formats.utils.abstract import (
     AbstractChecker,
     AbstractFormat,
@@ -31,7 +32,7 @@ from wsidicom.graphical_annotations import Point as WsiPoint
 from wsidicom.graphical_annotations import Polygon as WsiPolygon
 from wsidicom.wsidicom import WsiDicom
 
-NACL_KEY_LENGTH = 32
+NACL_KEY_LENGTH = SecretBox.KEY_SIZE
 
 
 def decode_key(key: str) -> PrivateKey:

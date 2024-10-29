@@ -15,7 +15,7 @@
 import io
 import os
 
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 # Package meta-data.
 NAME = 'pims-plugin-format-dicom'
