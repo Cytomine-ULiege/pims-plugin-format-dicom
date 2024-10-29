@@ -1,0 +1,38 @@
+name: Code Quality
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "pims_plugin_format_dicom/**/*.py"
+      - "tests/**/*.py"
+
+jobs:
+  check-lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ vars.PYTHON_VERSION }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ vars.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pylint
+
+      - name: Check lint
+        run: pylint --output=lint.txt pims tests
+
+      - name: Upload lint report
+        if: ${{ always() }}
+        run: |
+          echo '# Lint report' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat lint.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
