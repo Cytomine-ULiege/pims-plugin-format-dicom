@@ -1,3 +1,5 @@
+"""Configuration file for tests."""
+
 #  * Copyright (c) 2020-2021. Authors: see NOTICE file.
 #  *
 #  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,16 +15,14 @@
 #  * limitations under the License.
 
 import os
-import shutil
 from contextlib import contextmanager
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from pims import config
 
-os.environ['CONFIG_FILE'] = "./pims-config.env"
+os.environ["CONFIG_FILE"] = "./pims-config.env"
 
 
 def test_root():
@@ -30,9 +30,7 @@ def test_root():
 
 
 def get_settings():
-    return config.Settings(
-        _env_file=os.getenv("CONFIG_FILE")
-    )
+    return config.Settings(_env_file=os.getenv("CONFIG_FILE"))
 
 
 @pytest.fixture
@@ -42,7 +40,7 @@ def settings():
 
 @pytest.fixture
 def app():
-    from pims import application as main
+    from pims import application as main  # pylint: disable=import-outside-toplevel
 
     main.app.dependency_overrides[config.get_settings] = get_settings
     return main.app
@@ -52,11 +50,13 @@ def app():
 def client(app):
     return TestClient(app)
 
+
 @pytest.fixture
 def image_path_wsidicom():
-	path = "/data/pims/upload_test_wsidicom/"
-	image = "melanoma_pilot_003.zip"
-	return [path, image]
+    path = "/data/pims/upload_test_wsidicom/"
+    image = "melanoma_pilot_003.zip"
+    return [path, image]
+
 
 @contextmanager
 def not_raises(expected_exc):
@@ -65,12 +65,8 @@ def not_raises(expected_exc):
 
     except expected_exc as err:
         raise AssertionError(
-            "Did raise exception {0} when it should not!".format(
-                repr(expected_exc)
-            )
-        )
+            f"Did raise exception {repr(expected_exc)} when it should not!"
+        ) from err
 
     except Exception as err:
-        raise AssertionError(
-            "An unexpected exception {0} raised.".format(repr(err))
-        )
+        raise AssertionError(f"An unexpected exception {repr(err)} raised.") from err
