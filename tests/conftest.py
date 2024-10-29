@@ -19,7 +19,6 @@ from contextlib import contextmanager
 
 import pytest
 from fastapi.testclient import TestClient
-
 from pims import config
 
 os.environ["CONFIG_FILE"] = "./pims-config.env"
@@ -40,7 +39,8 @@ def settings():
 
 @pytest.fixture
 def app():
-    from pims import application as main  # pylint: disable=import-outside-toplevel
+    from pims import \
+        application as main  # pylint: disable=import-outside-toplevel
 
     main.app.dependency_overrides[config.get_settings] = get_settings
     return main.app
