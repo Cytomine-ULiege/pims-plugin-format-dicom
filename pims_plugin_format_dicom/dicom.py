@@ -1,32 +1,49 @@
 """Classes and functions to handle WSI DICOM format."""
 
 import os
+from base64 import b64decode
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import fsspec
 import shapely
+from crypt4gh_fsspec import Crypt4GHFileSystem  # pylint: disable=unused-import
+from crypt4gh_fsspec.crypt4gh_file import Crypt4GHMagic
+from nacl.public import PrivateKey
+from nacl.secret import SecretBox
+from pims.formats.utils.abstract import (
+    AbstractChecker,
+    AbstractFormat,
+    AbstractParser,
+    AbstractReader,
+    CachedDataPath,
+)
+from pims.formats.utils.histogram import DefaultHistogramReader
+from pims.formats.utils.structures.annotations import ParsedMetadataAnnotation
+from pims.formats.utils.structures.metadata import ImageChannel, ImageMetadata
+from pims.formats.utils.structures.pyramid import Pyramid
+from pims.utils import UNIT_REGISTRY
+from pims.utils.dtypes import np_dtype
+from pims.utils.types import parse_float
 from pydicom.multival import MultiValue
 from wsidicom.graphical_annotations import Point as WsiPoint
 from wsidicom.graphical_annotations import Polygon as WsiPolygon
 from wsidicom.wsidicom import WsiDicom
 
-from pims.formats.utils.abstract import (
-    AbstractChecker,
-    AbstractParser,
-    AbstractReader,
-    AbstractFormat,
-    CachedDataPath,
-)
-from pims.files.file import Path as FilePath
-from pims.formats.utils.histogram import DefaultHistogramReader
-from pims.formats.utils.structures.annotations import ParsedMetadataAnnotation
-from pims.formats.utils.structures.metadata import ImageMetadata, ImageChannel
-from pims.formats.utils.structures.pyramid import Pyramid
-from pims.utils import UNIT_REGISTRY
-from pims.utils.dtypes import np_dtype
-from pims.utils.types import parse_float
+NACL_KEY_LENGTH = SecretBox.KEY_SIZE
+
+
+def decode_key(key: str) -> PrivateKey:
+    """Decode the key and extract the private key."""
+
+    secret_key = b64decode(key)[-NACL_KEY_LENGTH:]
+
+    if len(secret_key) != NACL_KEY_LENGTH:
+        raise ValueError(f"The extracted key is not {NACL_KEY_LENGTH} bytes long!")
+
+    return PrivateKey(secret_key)
 
 
 def dictify(ds: List[Any]) -> Dict[str, Any]:
@@ -59,9 +76,35 @@ def recurse_if_SQ(ds: List[Any]) -> List[Any]:
     return list_ds
 
 
-def cached_wsi_dicom_file(format: AbstractFormat) -> WsiDicom:
+def is_encrypted(file_path: Path) -> bool:
+    """Check if the file is encrypted."""
+
+    with open(file_path, "rb") as file:
+        if Crypt4GHMagic(file).is_crypt4gh():
+            return True
+
+    return False
+
+
+def cached_wsi_dicom_file(
+    format: AbstractFormat,
+    credentials: Dict[str, str],
+) -> WsiDicom:
     """Get the WSI DICOM object from the cache."""
-    return format.get_cached("_wsi_dicom", WsiDicom.open, str(format.path))
+
+    file_path = Path(format.path).resolve()
+
+    if is_encrypted(os.path.join(file_path, os.listdir(file_path)[0])):
+        return format.get_cached(
+            "_wsi_dicom",
+            WsiDicom.open,
+            f"crypt4gh://{file_path}",
+            file_options={
+                "private_key": decode_key(credentials.get("private_key")),
+            },
+        )
+
+    return format.get_cached("_wsi_dicom", WsiDicom.open, file_path)
 
 
 def get_root_file(path: Path) -> Optional[Path]:
@@ -75,37 +118,71 @@ def get_root_file(path: Path) -> Optional[Path]:
 
 
 class WSIDicomChecker(AbstractChecker):
+    CREDENTIALS = None
     OFFSET = 128
 
     @classmethod
-    def match(cls, pathlike: CachedDataPath) -> bool:
+    def get_signature(cls, file_path: str, encrypted: bool = False) -> bytearray:
+        """Get the signature of the file."""
 
-        path = pathlike.path
-        if os.path.isdir(path):
-            # list_subdir = [f.path for f in os.scandir(path) if os.path.isdir(f)]
-            # if len(list_subdir) == 1:
-            for child in os.listdir(path):
-                # verification on the format signature for each .dcm file
-                complete_path = FilePath(os.path.join(path, child))
-                cached_child = CachedDataPath(complete_path)
-                buf = cached_child.get_cached("signature", cached_child.path.signature)
-                if not (
-                    len(buf) > cls.OFFSET + 4
-                    and buf[cls.OFFSET] == 0x44
-                    and buf[cls.OFFSET + 1] == 0x49
-                    and buf[cls.OFFSET + 2] == 0x43
-                    and buf[cls.OFFSET + 3] == 0x4D
-                ):
-                    return False
+        from pims.files.file import NUM_SIGNATURE_BYTES
+        from pims.files.file import Path as FilePath  # pylint: disable=all
+
+        if encrypted:
+            with fsspec.open(
+                f"crypt4gh://{file_path}",
+                private_key=decode_key(cls.CREDENTIALS.get("private_key")),
+            ) as file:
+                return file.read(NUM_SIGNATURE_BYTES)
+
+        cached_child = CachedDataPath(FilePath(file_path))
+        return cached_child.get_cached("signature", cached_child.path.signature)
+
+    @classmethod
+    def is_wsi_dicom(cls, signature: bytearray) -> bool:
+        """Check if the signature is a WSI DICOM signature."""
+
+        if (
+            len(signature) > cls.OFFSET + 4
+            and signature[cls.OFFSET] == 0x44
+            and signature[cls.OFFSET + 1] == 0x49
+            and signature[cls.OFFSET + 2] == 0x43
+            and signature[cls.OFFSET + 3] == 0x4D
+        ):
             return True
-            # return False
+
         return False
+
+    @classmethod
+    def match(cls, pathlike: CachedDataPath) -> bool:
+        path = pathlike.path
+
+        if not os.path.isdir(path):
+            return False
+
+        encrypted = is_encrypted(os.path.join(path, os.listdir(path)[0]))
+
+        # verification on the format signature for each .dcm file
+        for child in os.listdir(path):
+            signature = cls.get_signature(os.path.join(path, child), encrypted)
+
+            if not cls.is_wsi_dicom(signature):
+                return False
+
+        return True
 
 
 class WSIDicomParser(AbstractParser):
+    def __init__(self, format: AbstractFormat):
+        super().__init__(format)
+
+        self.credentials = None
+
+    def set_credentials(self, credentials: Dict[str, str]):
+        self.credentials = credentials
 
     def parse_main_metadata(self):
-        wsidicom_object = cached_wsi_dicom_file(self.format)
+        wsidicom_object = cached_wsi_dicom_file(self.format, self.credentials)
         levels = wsidicom_object.levels
         imd = ImageMetadata()
 
@@ -154,32 +231,27 @@ class WSIDicomParser(AbstractParser):
         return imd
 
     def parse_known_metadata(self):
-        wsidicom_object = cached_wsi_dicom_file(self.format)
-        levels = wsidicom_object.levels
+        wsidicom_object = cached_wsi_dicom_file(self.format, self.credentials)
 
-        metadata = dictify(wsidicom_object.levels.groups[0].datasets[0])
+        groups = wsidicom_object.levels.groups[0]
+        metadata = dictify(groups.datasets[0])
         imd = super().parse_known_metadata()
-        imd.physical_size_x = wsidicom_object.levels.groups[
-            0
-        ].mpp.width * UNIT_REGISTRY("micrometers")
-        imd.physical_size_y = wsidicom_object.levels.groups[
-            0
-        ].mpp.height * UNIT_REGISTRY("micrometers")
+        imd.physical_size_x = groups.mpp.width * UNIT_REGISTRY("micrometers")
+        imd.physical_size_y = groups.mpp.height * UNIT_REGISTRY("micrometers")
 
-        imd.physical_size_z = self.parse_physical_size(
-            metadata["Shared Functional Groups Sequence"][0]["Pixel Measures Sequence"][
-                0
-            ]["Spacing Between Slices"]
-        )
+        ADT = "Acquisition DateTime"
+        PMS = "Pixel Measures Sequence"
+        SFGS = "Shared Functional Groups Sequence"
+        SBS = "Spacing Between Slices"
+        imd.physical_size_z = self.parse_physical_size(metadata[SFGS][0][PMS][0][SBS])
         if "Acquisition DateTime" in metadata:
-            imd.acquisition_datetime = self.parse_acquisition_date(
-                metadata["Acquisition DateTime"]
-            )
+            imd.acquisition_datetime = self.parse_acquisition_date(metadata[ADT])
+
         return imd
 
     def parse_raw_metadata(self):
-        wsidicom_object = cached_wsi_dicom_file(self.format)
-        levels = wsidicom_object.levels
+        wsidicom_object = cached_wsi_dicom_file(self.format, self.credentials)
+
         store = super().parse_raw_metadata()
         ds = wsidicom_object.levels.groups[0].datasets[0]
         data_elmts = recurse_if_SQ(ds)
@@ -201,21 +273,19 @@ class WSIDicomParser(AbstractParser):
     def parse_pyramid(self):
         pyramid = Pyramid()
 
-        wsidicom_object = cached_wsi_dicom_file(self.format)
-        levels = wsidicom_object.levels
+        wsidicom_object = cached_wsi_dicom_file(self.format, self.credentials)
 
-        for level in wsidicom_object.levels.levels:
-            level_info = wsidicom_object.levels.get_level(level)
-            level_size = level_info.size
-            tile_size = level_info.tile_size
+        for level in wsidicom_object.levels:
             pyramid.insert_tier(
-                level_size.width, level_size.height, (tile_size.width, tile_size.height)
+                level.size.width,
+                level.size.height,
+                (level.tile_size.width, level.tile_size.height),
             )
 
         return pyramid
 
     def parse_annotations(self) -> List[ParsedMetadataAnnotation]:
-        wsidicom_object = cached_wsi_dicom_file(self.format)
+        wsidicom_object = cached_wsi_dicom_file(self.format, self.credentials)
         channels = list(range(self.format.main_imd.n_channels))
         parsed_annots = []
         pixel_spacing = wsidicom_object.levels.groups[0].pixel_spacing.width
@@ -262,27 +332,39 @@ class WSIDicomParser(AbstractParser):
 
 
 class WSIDicomReader(AbstractReader):
+    def __init__(self, format: AbstractFormat):
+        super().__init__(format)
+
+        self.credentials = None
+
+    def set_credentials(self, credentials: Dict[str, str]):
+        self.credentials = credentials
 
     def read_thumb(
-        self, out_width, out_height, precomputed=True, c=None, z=None, t=None
+        self,
+        out_width,
+        out_height,
+        precomputed=True,
+        c=None,
+        z=None,
+        t=None,
     ):
-        img = cached_wsi_dicom_file(self.format)
+        img = cached_wsi_dicom_file(self.format, self.credentials)
 
         return img.read_thumbnail((out_width, out_height))
 
     def read_window(self, region, out_width, out_height, c=None, z=None, t=None):
-        img = cached_wsi_dicom_file(self.format)
+        img = cached_wsi_dicom_file(self.format, self.credentials)
 
         tier = self.format.pyramid.most_appropriate_tier(
             region,
             (out_width, out_height),
         )
         region = region.scale_to_tier(tier)
-        level = tier.level
-        norm_level = img.levels.levels[level]
+
         return img.read_region(
             (region.left, region.top),
-            norm_level,
+            tier.level,
             (region.width, region.height),
         )
 
@@ -290,11 +372,11 @@ class WSIDicomReader(AbstractReader):
         return self.read_window(tile, tile.width, tile.height, c, z, t)
 
     def read_macro(self, out_width, out_height):
-        img = cached_wsi_dicom_file(self.format)
+        img = cached_wsi_dicom_file(self.format, self.credentials)
         return img.read_overview()
 
     def read_label(self, out_width, out_height):
-        img = cached_wsi_dicom_file(self.format)
+        img = cached_wsi_dicom_file(self.format, self.credentials)
         return img.read_label()
 
 

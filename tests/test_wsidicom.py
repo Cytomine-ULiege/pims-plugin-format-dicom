@@ -9,8 +9,8 @@ import pytest
 from PIL import Image
 from pims.api.utils.models import HistogramType
 from pims.files.archive import Archive
-from pims.files.image import Image as FileImage
 from pims.files.file import HISTOGRAM_STEM, ORIGINAL_STEM, SPATIAL_STEM, Path
+from pims.files.image import Image as FileImage
 from pims.formats.utils.factories import FormatFactory
 from pims.importer.importer import FileImporter
 from pims.processing.histograms.utils import build_histogram_file

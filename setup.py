@@ -15,16 +15,17 @@
 import io
 import os
 
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 # Package meta-data.
 NAME = 'pims-plugin-format-dicom'
-REQUIRES_PYTHON = '>=3.8.0'
+REQUIRES_PYTHON = '>=3.10.0'
 
 # What packages are required for this module to be executed?
 REQUIRED = [
+    'fsspec==2024.2.0',
     'pims',
-    'wsidicom>=0.5.0'
+    'wsidicom>=0.21.0'
 ]
 
 DEPENDENCY_LINKS = []
