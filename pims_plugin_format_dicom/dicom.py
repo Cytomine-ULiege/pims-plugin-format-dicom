@@ -12,7 +12,6 @@ import shapely
 from crypt4gh_fsspec import Crypt4GHFileSystem  # pylint: disable=unused-import
 from crypt4gh_fsspec.crypt4gh_file import Crypt4GHMagic
 from nacl.public import PrivateKey
-from pims.files.file import NUM_SIGNATURE_BYTES, Path as FilePath
 from pims.formats.utils.abstract import (
     AbstractChecker,
     AbstractFormat,
@@ -124,6 +123,9 @@ class WSIDicomChecker(AbstractChecker):
     @classmethod
     def get_signature(cls, file_path: str, encrypted: bool = False) -> bytearray:
         """Get the signature of the file."""
+
+        from pims.files.file import NUM_SIGNATURE_BYTES
+        from pims.files.file import Path as FilePath  # pylint: disable=all
 
         if encrypted:
             with fsspec.open(
