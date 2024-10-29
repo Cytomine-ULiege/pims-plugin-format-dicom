@@ -1,3 +1,5 @@
+"""Metadata for the plugin format DICOM."""
+
 #  * Copyright (c) 2020-2021. Authors: see NOTICE file.
 #  *
 #  * Licensed under the GNU Lesser General Public License, Version 2.1 (the "License");
@@ -12,13 +14,14 @@
 #  * See the License for the specific language governing permissions and
 #  * limitations under the License.
 
-name = "dicom" 
-__title__ = f'pims-plugin-format-{name}'
-__description__ = f'{name} plugin for PIMS'
-__plugin__ = f'{name}'
-__url__ = 'https://github.com/imi-bigpicture/wsidicom' # URL for plugin format documentation
+NAME = "dicom"
+__title__ = f"pims-plugin-format-{NAME}"
+__description__ = f"{NAME} plugin for PIMS"
+__plugin__ = f"{NAME}"
+# URL for plugin format documentation
+__url__ = "https://github.com/imi-bigpicture/wsidicom"
 __version__ = "0.0.0"
-__license__ = ''
-__copyright__ = ''
-__author__ = ''
-__email__ = ''
+__license__ = ""
+__copyright__ = ""
+__author__ = ""
+__email__ = ""
