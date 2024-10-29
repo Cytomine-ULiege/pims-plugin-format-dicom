@@ -9,9 +9,10 @@ from typing import Any, Dict, List, Optional
 
 import fsspec
 import shapely
-from crypt4gh_fsspec import Crypt4GHFileSystem  # noqa
+from crypt4gh_fsspec import Crypt4GHFileSystem  # pylint: disable=unused-import
 from crypt4gh_fsspec.crypt4gh_file import Crypt4GHMagic
 from nacl.public import PrivateKey
+from pims.files.file import NUM_SIGNATURE_BYTES, Path as FilePath
 from pims.formats.utils.abstract import (
     AbstractChecker,
     AbstractFormat,
@@ -124,8 +125,6 @@ class WSIDicomChecker(AbstractChecker):
     def get_signature(cls, file_path: str, encrypted: bool = False) -> bytearray:
         """Get the signature of the file."""
 
-        from pims.files.file import NUM_SIGNATURE_BYTES, Path
-
         if encrypted:
             with fsspec.open(
                 f"crypt4gh://{file_path}",
@@ -133,7 +132,7 @@ class WSIDicomChecker(AbstractChecker):
             ) as file:
                 return file.read(NUM_SIGNATURE_BYTES)
 
-        cached_child = CachedDataPath(Path(file_path))
+        cached_child = CachedDataPath(FilePath(file_path))
         return cached_child.get_cached("signature", cached_child.path.signature)
 
     @classmethod
@@ -171,6 +170,11 @@ class WSIDicomChecker(AbstractChecker):
 
 
 class WSIDicomParser(AbstractParser):
+    def __init__(self, format: AbstractFormat):
+        super().__init__(format)
+
+        self.credentials = None
+
     def set_credentials(self, credentials: Dict[str, str]):
         self.credentials = credentials
 
@@ -325,6 +329,11 @@ class WSIDicomParser(AbstractParser):
 
 
 class WSIDicomReader(AbstractReader):
+    def __init__(self, format: AbstractFormat):
+        super().__init__(format)
+
+        self.credentials = None
+
     def set_credentials(self, credentials: Dict[str, str]):
         self.credentials = credentials
 
