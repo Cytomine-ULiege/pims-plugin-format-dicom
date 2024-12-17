@@ -243,7 +243,8 @@ class WSIDicomParser(AbstractParser):
         PMS = "Pixel Measures Sequence"
         SFGS = "Shared Functional Groups Sequence"
         SBS = "Spacing Between Slices"
-        imd.physical_size_z = self.parse_physical_size(metadata[SFGS][0][PMS][0][SBS])
+        physical_size = metadata[SFGS][0][PMS][0].get(SBS, None)
+        imd.physical_size_z = self.parse_physical_size(physical_size)
         if "Acquisition DateTime" in metadata:
             imd.acquisition_datetime = self.parse_acquisition_date(metadata[ADT])
 
