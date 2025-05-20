@@ -1,7 +1,6 @@
 """Classes and functions to handle WSI DICOM format."""
 
 import os
-from base64 import b64decode
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
@@ -9,10 +8,10 @@ from typing import Any, Dict, List, Optional
 
 import fsspec
 import shapely
+from crypt4gh.keys import get_private_key
 from crypt4gh_fsspec import Crypt4GHFileSystem  # pylint: disable=unused-import
 from crypt4gh_fsspec.crypt4gh_file import Crypt4GHMagic
 from nacl.public import PrivateKey
-from nacl.secret import SecretBox
 from pims.formats.utils.abstract import (
     AbstractChecker,
     AbstractFormat,
@@ -32,18 +31,19 @@ from wsidicom.graphical_annotations import Point as WsiPoint
 from wsidicom.graphical_annotations import Polygon as WsiPolygon
 from wsidicom.wsidicom import WsiDicom
 
-NACL_KEY_LENGTH = SecretBox.KEY_SIZE
 
+def decode_key_from_file(credentials: Dict[str, str]) -> PrivateKey:
+    """Decode the key from a file and extract the private key."""
 
-def decode_key(key: str) -> PrivateKey:
-    """Decode the key and extract the private key."""
+    def get_passphrase():
+        return credentials.get("passphrase")
 
-    secret_key = b64decode(key)[-NACL_KEY_LENGTH:]
+    key_path = os.path.join(
+        credentials.get("keys_path"),
+        credentials.get("private_key"),
+    )
 
-    if len(secret_key) != NACL_KEY_LENGTH:
-        raise ValueError(f"The extracted key is not {NACL_KEY_LENGTH} bytes long!")
-
-    return PrivateKey(secret_key)
+    return get_private_key(key_path, get_passphrase)
 
 
 def dictify(ds: List[Any]) -> Dict[str, Any]:
@@ -100,7 +100,7 @@ def cached_wsi_dicom_file(
             WsiDicom.open,
             f"crypt4gh://{file_path}",
             file_options={
-                "private_key": decode_key(credentials.get("private_key")),
+                "private_key": decode_key_from_file(credentials),
             },
         )
 
@@ -131,7 +131,7 @@ class WSIDicomChecker(AbstractChecker):
         if encrypted:
             with fsspec.open(
                 f"crypt4gh://{file_path}",
-                private_key=decode_key(cls.CREDENTIALS.get("private_key")),
+                private_key=decode_key_from_file(cls.CREDENTIALS),
             ) as file:
                 return file.read(NUM_SIGNATURE_BYTES)
 
